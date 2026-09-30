@@ -1,0 +1,7 @@
+{
+  "name": "jogoBurro",
+  "integrations": {
+    "capacitor": {}
+  },
+  "type": "vue-vite"
+}
