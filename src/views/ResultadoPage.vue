@@ -1,0 +1,13 @@
+<template>
+    <GameLayout>
+        <section class="result">
+            <p class="kicker">PARTIDA ENCERRADA</p>
+            <h1>Até a próxima,<br /><em>mesa.</em></h1>
+            <p>O resultado foi salvo automaticamente no histórico deste aparelho.</p><ion-button expand="block"
+                router-link="/inicio">Nova partida</ion-button><ion-button expand="block" fill="outline"
+                router-link="/historico">Ver histórico</ion-button>
+        </section>
+    </GameLayout>
+</template>
+<script setup
+    lang="ts">    import { IonButton } from '@ionic/vue'; import GameLayout from '@/components/GameLayout.vue';</script>

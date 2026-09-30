@@ -1,34 +1,18 @@
 import { createRouter, createWebHistory } from '@ionic/vue-router';
 import { RouteRecordRaw } from 'vue-router';
-import TabsPage from '../views/TabsPage.vue'
-
 const routes: Array<RouteRecordRaw> = [
-  {
-    path: '/',
-    redirect: '/tabs/tab1'
-  },
-  {
-    path: '/tabs/',
-    component: TabsPage,
-    children: [
-      {
-        path: '',
-        redirect: '/tabs/tab1'
-      },
-      {
-        path: 'tab1',
-        component: () => import('@/views/Tab1Page.vue')
-      },
-      {
-        path: 'tab2',
-        component: () => import('@/views/Tab2Page.vue')
-      },
-      {
-        path: 'tab3',
-        component: () => import('@/views/Tab3Page.vue')
-      }
-    ]
-  }
+  { path: '/', redirect: '/inicio' },
+  { path: '/inicio', component: () => import('@/views/InicioPage.vue') },
+  { path: '/nova-partida', component: () => import('@/views/NovaPartidaPage.vue') },
+  { path: '/sala', component: () => import('@/views/SalaPage.vue') },
+  { path: '/jogo', component: () => import('@/views/JogoPage.vue') },
+  { path: '/resultado', component: () => import('@/views/ResultadoPage.vue') },
+  { path: '/historico', component: () => import('@/views/HistoricoPage.vue') },
+  { path: '/estatisticas', component: () => import('@/views/EstatisticasPage.vue') },
+  { path: '/detalhes/:id', component: () => import('@/views/DetalhesPage.vue') },
+  { path: '/regras', component: () => import('@/views/RegrasPage.vue') },
+  { path: '/configuracoes', component: () => import('@/views/ConfiguracoesPage.vue') },
+  { path: '/bluetooth', component: () => import('@/views/BluePocPage.vue') },
 ]
 
 const router = createRouter({

@@ -1,0 +1,15 @@
+<template>
+    <GameLayout>
+        <div class="section-heading">
+            <p class="kicker">DISPOSITIVO</p>
+            <h2>Configurações</h2>
+        </div><ion-list><ion-item><ion-label>Bluetooth</ion-label><ion-note slot="end"
+                    color="success">pronto</ion-note></ion-item><ion-item><ion-label>Modo de
+                    conexão</ion-label><ion-note slot="end">host
+                    autoritativo</ion-note></ion-item><ion-item><ion-label>Persistência</ion-label><ion-note
+                    slot="end">local</ion-note></ion-item></ion-list><ion-button fill="outline" color="danger"
+            expand="block" @click="limpar">Apagar histórico</ion-button>
+    </GameLayout>
+</template>
+<script setup
+    lang="ts">    import { IonButton, IonItem, IonLabel, IonList, IonNote, toastController } from '@ionic/vue'; import GameLayout from '@/components/GameLayout.vue'; import { historicoService } from '@/services/database/historico'; async function limpar() { historicoService.limpar(); const toast = await toastController.create({ message: 'Histórico apagado.', duration: 1800 }); await toast.present(); }</script>
