@@ -30,3 +30,33 @@ export async function salvarRegistroNoBanco(registro: RegistroHistorico): Promis
     await db.run('INSERT INTO participantes (partida_id, nome, ordem, resultado) VALUES (?, ?, ?, ?)', [registro.id, participante.nome, participante.ordem, participante.resultado]);
   }
 }
+
+export async function listarRegistrosNoBanco(): Promise<RegistroHistorico[]> {
+  const db = await inicializarBanco();
+  const partidas = await db.query('SELECT id, inicio, fim, status, motivo_encerramento AS motivoEncerramento, vencedor, penalizado, rodadas FROM partidas ORDER BY inicio DESC');
+  const registros: RegistroHistorico[] = [];
+  for (const partida of (partidas.values || []) as Array<Omit<RegistroHistorico, 'participantes'>>) {
+    registros.push(await buscarRegistroNoBanco(String(partida.id)) as RegistroHistorico);
+  }
+  return registros;
+}
+
+export async function buscarRegistroNoBanco(id: string): Promise<RegistroHistorico | undefined> {
+  const db = await inicializarBanco();
+  const partida = await db.query('SELECT id, inicio, fim, status, motivo_encerramento AS motivoEncerramento, vencedor, penalizado, rodadas FROM partidas WHERE id = ?', [id]);
+  const dados = partida.values?.[0] as Omit<RegistroHistorico, 'participantes'> | undefined;
+  if (!dados) return undefined;
+  const participantes = await db.query('SELECT nome, ordem, resultado FROM participantes WHERE partida_id = ? ORDER BY ordem', [id]);
+  return { ...dados, participantes: (participantes.values || []) as RegistroHistorico['participantes'] };
+}
+
+export async function excluirRegistroNoBanco(id: string): Promise<void> {
+  const db = await inicializarBanco();
+  await db.run('DELETE FROM participantes WHERE partida_id = ?', [id]);
+  await db.run('DELETE FROM partidas WHERE id = ?', [id]);
+}
+
+export async function limparBanco(): Promise<void> {
+  const db = await inicializarBanco();
+  await db.execute('DELETE FROM participantes; DELETE FROM partidas;');
+}

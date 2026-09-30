@@ -18,11 +18,11 @@ export function embaralhar<T>(itens: T[], aleatorio: () => number = Math.random)
   return resultado;
 }
 
-export function criarPartida(nomes: string[], aleatorio?: () => number): Partida {
+export function criarPartida(nomes: string[], aleatorio?: () => number, ids?: string[]): Partida {
   if (nomes.length < 2 || nomes.length > 4) throw new Error('Informe de 2 a 4 jogadores.');
   const cartas = embaralhar(criarBaralho(nomes.length), aleatorio);
   const jogadores: Jogador[] = nomes.map((nome, ordem) => ({
-    id: `jogador-${ordem + 1}`,
+    id: ids?.[ordem] || `jogador-${ordem + 1}`,
     nome,
     ordem,
     mao: cartas.slice(ordem * 4, ordem * 4 + 4),
@@ -41,6 +41,10 @@ export function criarPartida(nomes: string[], aleatorio?: () => number): Partida
 }
 
 export function proximoJogador(partida: Partida, ordem: number): number {
+  for (let passo = 1; passo <= partida.jogadores.length; passo += 1) {
+    const candidato = partida.jogadores[(ordem + passo) % partida.jogadores.length];
+    if (candidato.letrasBurro < LETRAS_BURRO) return candidato.ordem;
+  }
   return (ordem + 1) % partida.jogadores.length;
 }
 
@@ -60,17 +64,22 @@ export function trocarCarta(partida: Partida, jogadorId: string, cartaId: string
     : item.id === partida.jogadores[destino].id
       ? { ...item, mao: maoDestino }
       : item);
-  return { ...partida, jogadores, descarte: [...partida.descarte, carta], jogadorAtual: destino, rodada: partida.rodada + 1 };
+  return { ...partida, jogadores, jogadorAtual: destino, rodada: partida.rodada + 1 };
 }
 
 export function completarJogador(partida: Partida, jogadorId: string): Partida {
   const jogador = partida.jogadores.find((item) => item.id === jogadorId);
+  if (partida.status !== 'em-andamento') throw new Error('A partida já terminou.');
   if (!jogador || jogador.mao.length !== 4 || new Set(jogador.mao.map((carta) => carta.valor)).size !== 1) {
     throw new Error('O jogador precisa ter quatro cartas do mesmo valor.');
   }
+  if (jogador.ordem !== partida.jogadorAtual) throw new Error('Não é a vez deste jogador.');
   const penalizados = partida.jogadores.filter((item) => item.id !== jogadorId && item.mao.some((carta) => carta.valor === jogador.mao[0].valor));
   const jogadores = partida.jogadores.map((item) => penalizados.some((penalizado) => penalizado.id === item.id)
     ? { ...item, letrasBurro: Math.min(LETRAS_BURRO, item.letrasBurro + 1) }
     : item);
-  return { ...partida, jogadores };
+  const restantes = jogadores.filter((item) => item.letrasBurro < LETRAS_BURRO);
+  return restantes.length <= 1
+    ? { ...partida, jogadores, status: 'finalizada', fim: new Date().toISOString(), motivoEncerramento: 'Um jogador permaneceu sem formar BURRO.' }
+    : { ...partida, jogadores };
 }

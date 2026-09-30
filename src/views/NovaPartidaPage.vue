@@ -1,2 +1,38 @@
-<template><GameLayout><div class="section-heading"><p class="kicker">NOVA PARTIDA · ANFITRIÃO</p><h2>Monte sua mesa</h2><p>O anfitrião valida todas as jogadas e mantém o estado verdadeiro.</p></div><ion-list class="names-list"><ion-item v-for="(nome, index) in nomes" :key="index"><ion-input v-model="nomes[index]" :label="`Jogador ${index + 1}`" label-placement="stacked" /></ion-item></ion-list><ion-button expand="block" size="large" :disabled="nomes.some((nome) => !nome.trim())" @click="criar">Abrir sala <ion-icon slot="end" :icon="peopleOutline" /></ion-button><ion-note>Regra: ao completar um grupo de quatro, quem ainda tiver cartas daquele valor recebe uma letra. Com 5 letras, sai da partida.</ion-note></GameLayout></template>
-<script setup lang="ts">import { ref } from 'vue'; import { useRouter } from 'vue-router'; import { IonButton, IonIcon, IonInput, IonItem, IonList, IonNote } from '@ionic/vue'; import { peopleOutline } from 'ionicons/icons'; import GameLayout from '@/components/GameLayout.vue'; import { gameStore } from '@/stores/game'; const router = useRouter(); const nomes = ref(['Você', 'Jogador 2']); function criar() { gameStore.criar(nomes.value); router.push('/sala'); }</script>
+<template>
+    <GameLayout>
+        <div class="section-heading">
+            <p class="kicker">NOVA PARTIDA · ANFITRIÃO</p>
+            <h2>Abra sua sala</h2>
+            <p>Os outros jogadores entram pelo Bluetooth e informam seus nomes.</p>
+        </div>
+        <ion-item class="name-input">
+            <ion-input
+                v-model="nome"
+                label="Seu nome"
+                label-placement="stacked"
+                placeholder="Ex.: Ana"
+                :maxlength="18"
+            />
+        </ion-item>
+        <ion-button expand="block" size="large" :disabled="!nome.trim()" @click="criar">
+            Abrir sala <ion-icon slot="end" :icon="peopleOutline" />
+        </ion-button>
+        <ion-note>Até quatro jogadores podem participar.</ion-note>
+    </GameLayout>
+</template>
+<script setup lang="ts">
+import { ref } from 'vue';
+import { useRouter } from 'vue-router';
+import { IonButton, IonIcon, IonInput, IonItem, IonNote } from '@ionic/vue';
+import { peopleOutline } from 'ionicons/icons';
+import GameLayout from '@/components/GameLayout.vue';
+import { gameStore } from '@/stores/game';
+
+const router = useRouter();
+const nome = ref('');
+
+function criar() {
+    gameStore.criarSala(nome.value);
+    router.push('/sala');
+}
+</script>

@@ -8,9 +8,11 @@ const routes: Array<RouteRecordRaw> = [
   { path: '/jogo', component: () => import('@/views/JogoPage.vue') },
   { path: '/resultado', component: () => import('@/views/ResultadoPage.vue') },
   { path: '/historico', component: () => import('@/views/HistoricoPage.vue') },
+  { path: '/estatisticas', component: () => import('@/views/EstatisticasPage.vue') },
   { path: '/detalhes/:id', component: () => import('@/views/DetalhesPage.vue') },
   { path: '/regras', component: () => import('@/views/RegrasPage.vue') },
   { path: '/configuracoes', component: () => import('@/views/ConfiguracoesPage.vue') },
+  { path: '/bluetooth', component: () => import('@/views/BluePocPage.vue') },
 ]
 
 const router = createRouter({

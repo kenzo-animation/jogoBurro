@@ -30,6 +30,16 @@ em { color: var(--ion-color-primary); font-style: normal; }
 .status-strip { border-top: 1px solid var(--line); padding-top: 16px; color: var(--ink-muted); font-size: 13px; }
 .status-strip strong { float: right; color: #20201d; }
 .status-dot { display: inline-block; width: 8px; height: 8px; margin-right: 7px; border-radius: 50%; background: #2f7464; }
+.ble-status { margin: 24px 0; padding: 16px; background: var(--paper); border: 1px solid var(--line); color: var(--ink-muted); }
+.ble-status.error { border-color: var(--ion-color-danger); color: var(--ion-color-danger); }
+.ble-status.success { border-color: var(--ion-color-success); color: var(--ion-color-success); }
+.stats-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+.stat { padding: 22px; background: var(--paper); border: 1px solid var(--line); }
+.stat strong { display: block; font: 38px Georgia, serif; color: var(--ion-color-primary); }
+.stat span { color: var(--ink-muted); font-size: 12px; text-transform: uppercase; letter-spacing: .08em; }
+.stat-feature { margin-top: 8px; padding: 24px; background: #20201d; color: #fffaf2; }
+.stat-feature h3 { margin: 8px 0; font: 32px Georgia, serif; }
+.stat-feature p:last-child { color: #c8c0b3; }
 .section-heading { margin-bottom: 28px; }
 .names-list, .player-list, .history-list, ion-list { background: transparent; margin-bottom: 24px; }
 ion-item { --background: var(--paper); --border-color: var(--line); margin-bottom: 8px; }
@@ -55,5 +65,9 @@ ion-avatar { background: #e7b84b; display: grid; place-items: center; font-weigh
 .rules li { counter-increment: rule; display: grid; grid-template-columns: 48px 1fr; gap: 12px; padding: 22px 0; border-top: 1px solid var(--line); }
 .rules li::before { content: '0' counter(rule); color: var(--ion-color-primary); font-weight: 800; }
 .rules span { grid-column: 2; color: var(--ink-muted); line-height: 1.45; }
-ion-tab-bar { --background: #fffaf2; --border: 1px solid var(--line); }
+.app-tabs { --background: #fffaf2; border-top: 1px solid var(--line); }
+.app-tabs nav { display: grid; grid-template-columns: repeat(5, 1fr); max-width: 720px; margin: 0 auto; }
+.app-tabs a { display: grid; justify-items: center; gap: 3px; padding: 8px 2px 9px; color: var(--ink-muted); font-size: 10px; text-decoration: none; }
+.app-tabs a.router-link-active { color: var(--ion-color-primary); font-weight: 800; }
+.app-tabs ion-icon { font-size: 19px; }
 @media (max-width: 480px) { .page-wrap { padding-inline: 16px; } .status-strip strong { float: none; display: block; margin: 8px 0 0 15px; } .player-chip { grid-template-columns: 30px 1fr; } .player-chip small { grid-column: 2; } }
