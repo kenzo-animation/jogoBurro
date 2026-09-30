@@ -17,6 +17,48 @@ const enc = new TextEncoder();
 const dec = new TextDecoder();
 const toBytes = (s: string): number[] => Array.from(enc.encode(s));
 const fromBytes = (b: number[]): string => dec.decode(new Uint8Array(b));
+const CHUNK_BYTES = 120;
+const partesRecebidas = new Map<string, { total: number; partes: string[] }>();
+
+function base64(bytes: number[]): string {
+  let texto = '';
+  for (const byte of bytes) texto += String.fromCharCode(byte);
+  return btoa(texto);
+}
+
+function bytesBase64(texto: string): number[] {
+  return Array.from(atob(texto), (caractere) => caractere.charCodeAt(0));
+}
+
+function dividirMensagem(texto: string): string[] {
+  const bytes = toBytes(texto);
+  const total = Math.max(1, Math.ceil(bytes.length / CHUNK_BYTES));
+  return Array.from({ length: total }, (_, indice) => {
+    const parte = bytes.slice(indice * CHUNK_BYTES, (indice + 1) * CHUNK_BYTES);
+    return `BURRO1/${indice}/${total}/${base64(parte)}`;
+  });
+}
+
+function juntarMensagem(deviceId: string, texto: string): string | null {
+  const partes = texto.split('/');
+  if (partes.length !== 4 || partes[0] !== 'BURRO1') return texto;
+  const indice = Number(partes[1]);
+  const total = Number(partes[2]);
+  if (!Number.isInteger(indice) || !Number.isInteger(total) || indice < 0 || indice >= total || total > 256) return null;
+  const atual = partesRecebidas.get(deviceId) || { total, partes: [] };
+  if (atual.total !== total) partesRecebidas.delete(deviceId);
+  const acumulado = partesRecebidas.get(deviceId) || { total, partes: [] };
+  acumulado.total = total;
+  acumulado.partes[indice] = partes[3];
+  partesRecebidas.set(deviceId, acumulado);
+  if (acumulado.partes.filter(Boolean).length !== total) return null;
+  partesRecebidas.delete(deviceId);
+  return fromBytes(acumulado.partes.flatMap(bytesBase64));
+}
+
+async function enviarTexto(enviar: (bytes: number[]) => Promise<void>, texto: string) {
+  for (const parte of dividirMensagem(texto)) await enviar(toBytes(parte));
+}
  
 // O plugin espera todas as propriedades; este helper preenche o que não for informado.
 const props = (p: Partial<Record<string, boolean>>) => ({
@@ -31,7 +73,9 @@ let servicoRegistrado = false;
 const guardar = async (p: Promise<PluginListenerHandle>) => { handles.push(await p); };
  
 async function limparListeners() {
-  for (const handle of handles.splice(0)) await handle.remove();
+  for (const handle of handles.splice(0)) {
+    try { await handle.remove(); } catch { /* listener já removido pelo sistema */ }
+  }
 }
 
 async function prepararPermissoes(log: Log, modo: 'central' | 'peripheral') {
@@ -67,10 +111,8 @@ export async function iniciarAnfitriao(
   await limparListeners();
   await prepararPermissoes(log, 'peripheral');
  
-  if (servicoRegistrado) {
-    try { await BluetoothLowEnergy.removeGattService({ service: SERVICE_UUID }); } catch { /* serviço pode não existir após reinício do app */ }
-    servicoRegistrado = false;
-  }
+  try { await BluetoothLowEnergy.removeGattService({ service: SERVICE_UUID }); } catch { /* serviço pode não existir após reinício do app */ }
+  servicoRegistrado = false;
   await BluetoothLowEnergy.addGattService({
     service: SERVICE_UUID,
     characteristics: [
@@ -87,7 +129,8 @@ export async function iniciarAnfitriao(
   }));
   await guardar(BluetoothLowEnergy.addListener('gattCharacteristicWriteRequest', (e) => {
     if (e.characteristic.toLowerCase() !== RX_UUID) return;
-    onMensagem(e.deviceId, fromBytes(e.value));
+    const mensagem = juntarMensagem(e.deviceId, fromBytes(e.value));
+    if (mensagem) onMensagem(e.deviceId, mensagem);
   }));
  
   await BluetoothLowEnergy.startAdvertising({ name: nome, services: [SERVICE_UUID], includeName: true });
@@ -96,12 +139,9 @@ export async function iniciarAnfitriao(
  
 /** Envia para um cliente específico (deviceId) ou, sem deviceId, para todos os inscritos. */
 export async function anfitriaoEnviar(texto: string, deviceId?: string) {
-  await BluetoothLowEnergy.notifyGattCharacteristicChanged({
-    service: SERVICE_UUID,
-    characteristic: TX_UUID,
-    value: toBytes(texto),
-    deviceId,
-  });
+  await enviarTexto((bytes) => BluetoothLowEnergy.notifyGattCharacteristicChanged({
+    service: SERVICE_UUID, characteristic: TX_UUID, value: bytes, deviceId,
+  }), texto);
 }
  
 // ---------------- CLIENTE ----------------
@@ -129,6 +169,7 @@ export async function entrarNaPartida(
   onDesconectou: () => void,
 ) {
   await BluetoothLowEnergy.stopScan();
+  await limparListeners();
   await BluetoothLowEnergy.connect({ deviceId });
   await BluetoothLowEnergy.discoverServices({ deviceId });
  
@@ -140,7 +181,9 @@ export async function entrarNaPartida(
   }
  
   await guardar(BluetoothLowEnergy.addListener('characteristicChanged', (e) => {
-    if (e.characteristic.toLowerCase() === TX_UUID) onMensagem(fromBytes(e.value));
+    if (e.characteristic.toLowerCase() !== TX_UUID) return;
+    const mensagem = juntarMensagem(deviceId, fromBytes(e.value));
+    if (mensagem) onMensagem(mensagem);
   }));
   await guardar(BluetoothLowEnergy.addListener('deviceDisconnected', (e) => {
     if (e.deviceId === deviceId) { log('Desconectado do anfitrião'); onDesconectou(); }
@@ -153,13 +196,9 @@ export async function entrarNaPartida(
 }
  
 export async function clienteEnviar(deviceId: string, texto: string) {
-  await BluetoothLowEnergy.writeCharacteristic({
-    deviceId,
-    service: SERVICE_UUID,
-    characteristic: RX_UUID,
-    value: toBytes(texto),
-    type: 'withResponse',
-  });
+  await enviarTexto((bytes) => BluetoothLowEnergy.writeCharacteristic({
+    deviceId, service: SERVICE_UUID, characteristic: RX_UUID, value: bytes, type: 'withResponse',
+  }), texto);
 }
  
 // ---------------- ENCERRAR ----------------
@@ -174,4 +213,5 @@ export async function encerrar(deviceId?: string) {
     servicoRegistrado = false;
   }
   if (deviceId) { try { await BluetoothLowEnergy.disconnect({ deviceId }); } catch { /* ignora */ } }
+  partesRecebidas.clear();
 }
