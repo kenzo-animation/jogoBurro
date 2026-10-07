@@ -2,6 +2,16 @@ import { completarJogador, criarPartida, trocarCarta } from '@/domain/jogo';
 import { criarMensagem, desserializarMensagem, serializarMensagem, type MensagemBluetooth } from '@/types/bluetooth';
 import type { Partida } from '@/types/game';
 
+let hostAtivo: JogoBluetoothHost | undefined;
+
+export function registrarHostBluetooth(host?: JogoBluetoothHost): void {
+  hostAtivo = host;
+}
+
+export function hostBluetoothAtual(): JogoBluetoothHost | undefined {
+  return hostAtivo;
+}
+
 export interface BluetoothGateway {
   enviar(deviceId: string | undefined, texto: string): Promise<void>;
 }
@@ -34,10 +44,30 @@ export class JogoBluetoothHost {
   get estado(): Partida | null { return this.partida; }
   get sala(): readonly JogadorConectado[] { return this.jogadores; }
 
+  async jogarComoAnfitriao(cartaId: string): Promise<void> {
+    if (!this.partida) throw new Error('A partida ainda não começou.');
+    await this.jogada(criarMensagem('JOGADA', this.partidaId, this.hostId, { cartaId }));
+  }
+
+  async completarComoAnfitriao(): Promise<void> {
+    if (!this.partida) throw new Error('A partida ainda não começou.');
+    await this.completou(criarMensagem('JOGADOR_COMPLETOU', this.partidaId, this.hostId, {
+      jogadorId: this.hostId,
+    }));
+  }
+
   // Recebe e valida a mensagem antes de executar qualquer alteração da sala ou da partida.
   async receber(deviceId: string, texto: string): Promise<void> {
     const mensagem = desserializarMensagem(texto);
-    if (!mensagem || mensagem.partidaId !== this.partidaId) return;
+    if (!mensagem) return;
+    if (mensagem.tipo === 'CONSULTAR_SALA') {
+      await this.enviar(deviceId, criarMensagem('SALA_ATUALIZADA', this.partidaId, this.hostId, {
+        jogadores: this.resumoSala(),
+        aceita: true,
+      }));
+      return;
+    }
+    if (mensagem.partidaId !== this.partidaId) return;
     if (mensagem.tipo === 'SOLICITAR_ENTRADA') return this.solicitarEntrada(deviceId, mensagem);
     if (mensagem.tipo === 'RECONEXAO') return this.reconectar(deviceId, mensagem);
     if (mensagem.tipo === 'JOGADA') return this.jogada(mensagem);

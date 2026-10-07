@@ -12,7 +12,7 @@ const routes: Array<RouteRecordRaw> = [
   { path: '/detalhes/:id', component: () => import('@/views/DetalhesPage.vue') },
   { path: '/regras', component: () => import('@/views/RegrasPage.vue') },
   { path: '/configuracoes', component: () => import('@/views/ConfiguracoesPage.vue') },
-  { path: '/bluetooth', component: () => import('@/views/BluePocPage.vue') },
+  { path: '/bluetooth', redirect: { path: '/sala', query: { modo: 'cliente' } } },
 ]
 
 const router = createRouter({

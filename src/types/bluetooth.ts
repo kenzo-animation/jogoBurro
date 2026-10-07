@@ -1,7 +1,8 @@
-export type TipoMensagem = 'SALA_ATUALIZADA' | 'SOLICITAR_ENTRADA' | 'RESPOSTA_ENTRADA' | 'INICIAR_PARTIDA' | 'JOGADA' | 'TROCA_REALIZADA' | 'JOGADOR_COMPLETOU' | 'PARTIDA_FINALIZADA' | 'RECONEXAO';
+export type TipoMensagem = 'SALA_ATUALIZADA' | 'CONSULTAR_SALA' | 'SOLICITAR_ENTRADA' | 'RESPOSTA_ENTRADA' | 'INICIAR_PARTIDA' | 'JOGADA' | 'TROCA_REALIZADA' | 'JOGADOR_COMPLETOU' | 'PARTIDA_FINALIZADA' | 'RECONEXAO';
 
 export interface PayloadsMensagem {
   SALA_ATUALIZADA: { jogadores: Array<{ id: string; nome: string; ordem: number; conectado: boolean }>; aceita: boolean };
+  CONSULTAR_SALA: { chunkBytes?: number };
   SOLICITAR_ENTRADA: { nome: string };
   RESPOSTA_ENTRADA: { aceita: boolean; motivo?: string; jogadorId?: string };
   INICIAR_PARTIDA: { jogadores: string[] };
@@ -29,7 +30,7 @@ export function serializarMensagem<Tipo extends TipoMensagem>(mensagem: Mensagem
   return JSON.stringify(mensagem);
 }
 
-const TIPOS: TipoMensagem[] = ['SALA_ATUALIZADA', 'SOLICITAR_ENTRADA', 'RESPOSTA_ENTRADA', 'INICIAR_PARTIDA', 'JOGADA', 'TROCA_REALIZADA', 'JOGADOR_COMPLETOU', 'PARTIDA_FINALIZADA', 'RECONEXAO'];
+const TIPOS: TipoMensagem[] = ['SALA_ATUALIZADA', 'CONSULTAR_SALA', 'SOLICITAR_ENTRADA', 'RESPOSTA_ENTRADA', 'INICIAR_PARTIDA', 'JOGADA', 'TROCA_REALIZADA', 'JOGADOR_COMPLETOU', 'PARTIDA_FINALIZADA', 'RECONEXAO'];
 
 function registro(valor: unknown): valor is Record<string, unknown> {
   return !!valor && typeof valor === 'object';
@@ -37,6 +38,14 @@ function registro(valor: unknown): valor is Record<string, unknown> {
 
 function payloadValido(tipo: TipoMensagem, payload: unknown): boolean {
   if (!registro(payload)) return false;
+  if (tipo === 'CONSULTAR_SALA') {
+    return payload.chunkBytes === undefined
+      || (typeof payload.chunkBytes === 'number'
+        && Number.isInteger(payload.chunkBytes)
+        && payload.chunkBytes >= 3
+        && payload.chunkBytes <= 120
+        && payload.chunkBytes % 3 === 0);
+  }
   if (tipo === 'SOLICITAR_ENTRADA') return typeof payload.nome === 'string' && payload.nome.trim().length > 0;
   if (tipo === 'JOGADA') return typeof payload.cartaId === 'string' && payload.cartaId.length > 0;
   if (tipo === 'JOGADOR_COMPLETOU') return typeof payload.jogadorId === 'string' && payload.jogadorId.length > 0;

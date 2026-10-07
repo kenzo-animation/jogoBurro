@@ -18,6 +18,30 @@ describe('host Bluetooth autoritativo', () => {
     expect(estadosBia[0]?.payload.mao).toEqual(host.estado?.jogadores[1].mao);
   });
 
+  it('permite ao anfitrião jogar e propaga o novo estado ao cliente', async () => {
+    const enviados: Array<{ deviceId: string; texto: string }> = [];
+    const host = new JogoBluetoothHost(
+      'Ana',
+      { enviar: async (deviceId, texto) => enviados.push({ deviceId: deviceId || 'host', texto }) },
+      'partida-teste',
+    );
+    await host.receber('device-bia', serializarMensagem(criarMensagem(
+      'SOLICITAR_ENTRADA',
+      'partida-teste',
+      'jogador-bia',
+      { nome: 'Bia' },
+    )));
+    await host.iniciar();
+    const carta = host.estado!.jogadores[0].mao[0];
+
+    await host.jogarComoAnfitriao(carta.id);
+
+    expect(host.estado?.jogadorAtual).toBe(1);
+    expect(host.estado?.rodada).toBe(2);
+    expect(enviados.some((item) => item.deviceId === 'device-bia'
+      && desserializarMensagem(item.texto)?.tipo === 'TROCA_REALIZADA')).toBe(true);
+  });
+
   it('recusa entrada depois do início e ignora partida ou formato inválido', async () => {
     const enviados: string[] = [];
     const host = new JogoBluetoothHost('Ana', { enviar: async (_, texto) => enviados.push(texto) }, 'partida-teste');
@@ -28,5 +52,26 @@ describe('host Bluetooth autoritativo', () => {
     const resposta = enviados.map((texto) => desserializarMensagem(texto)).find((mensagem) => mensagem?.tipo === 'RESPOSTA_ENTRADA' && mensagem.jogadorId === 'jogador-caio');
     expect(resposta?.payload.aceita).toBe(false);
     expect(host.sala).toHaveLength(2);
+  });
+
+  it('devolve a sala ao cliente antes de ele conhecer o identificador da partida', async () => {
+    const enviados: Array<{ deviceId: string; texto: string }> = [];
+    const host = new JogoBluetoothHost(
+      'Ana',
+      { enviar: async (deviceId, texto) => enviados.push({ deviceId: deviceId || 'host', texto }) },
+      'sala-real',
+    );
+
+    await host.receber(
+      'device-bia',
+      serializarMensagem(criarMensagem('CONSULTAR_SALA', 'descoberta', 'jogador-bia', {})),
+    );
+
+    const resposta = enviados
+      .filter((item) => item.deviceId === 'device-bia')
+      .map((item) => desserializarMensagem(item.texto))
+      .find((mensagem) => mensagem?.tipo === 'SALA_ATUALIZADA');
+    expect(resposta?.partidaId).toBe('sala-real');
+    expect(resposta?.payload.jogadores.map((jogador) => jogador.nome)).toEqual(['Ana']);
   });
 });
