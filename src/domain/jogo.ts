@@ -1,12 +1,12 @@
 import type { Carta, Jogador, Partida } from '@/types/game';
 
 const NAIPES = ['copas', 'ouros', 'espadas', 'paus'];
+const VALORES = Array.from({ length: 13 }, (_, indice) => indice + 1);
 const LETRAS_BURRO = 5;
 
 export function criarBaralho(numeroJogadores: number): Carta[] {
   if (numeroJogadores < 2 || numeroJogadores > 4) throw new Error('A partida precisa ter de 2 a 4 jogadores.');
-  return Array.from({ length: numeroJogadores }, (_, valor) => valor + 1)
-    .flatMap((valor) => NAIPES.map((naipe) => ({ id: `${valor}-${naipe}`, valor: String(valor), naipe })));
+  return VALORES.flatMap((valor) => NAIPES.map((naipe) => ({ id: `${valor}-${naipe}`, valor: String(valor), naipe })));
 }
 
 export function embaralhar<T>(itens: T[], aleatorio: () => number = Math.random): T[] {

@@ -29,6 +29,12 @@ export class JogoBluetoothClient {
   private readonly callbacks: JogoBluetoothClientCallbacks;
   private deviceId?: string;
   private connected = false;
+  private chunkBytes = 3;
+  private roomDiscovery?: {
+    resolve: (message: MensagemBluetooth<'SALA_ATUALIZADA'>) => void;
+    reject: (error: Error) => void;
+    timeout: ReturnType<typeof setTimeout>;
+  };
 
   constructor(callbacks: JogoBluetoothClientCallbacks) {
     this.callbacks = callbacks;
@@ -52,12 +58,12 @@ export class JogoBluetoothClient {
     await this.transport.stopScan();
   }
 
-  async connect(deviceId: string, partidaId: string, jogadorId: string): Promise<void> {
+  async connect(deviceId: string, partidaId: string | undefined, jogadorId: string): Promise<void> {
     this.deviceId = deviceId;
     this.partidaId = partidaId;
     this.jogadorId = jogadorId;
     this.connected = false;
-    await this.transport.connect(
+    this.chunkBytes = await this.transport.connect(
       deviceId,
       (remoteDeviceId, texto) => this.receber(remoteDeviceId, texto),
       () => {
@@ -71,6 +77,33 @@ export class JogoBluetoothClient {
 
   private partidaId?: string;
   private jogadorId?: string;
+
+  async descobrirSala(): Promise<MensagemBluetooth<'SALA_ATUALIZADA'>> {
+    if (!this.connected || !this.jogadorId) {
+      throw new Error('Conecte-se ao anfitrião antes de procurar a sala.');
+    }
+    const resposta = new Promise<MensagemBluetooth<'SALA_ATUALIZADA'>>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        this.roomDiscovery = undefined;
+        reject(new Error('O anfitrião não respondeu. Tente conectar novamente.'));
+      }, 8000);
+      this.roomDiscovery = { resolve, reject, timeout };
+    });
+    try {
+      await this.enviar({
+        tipo: 'CONSULTAR_SALA',
+        partidaId: this.partidaId || 'descoberta',
+        jogadorId: this.jogadorId,
+        payload: { chunkBytes: this.chunkBytes },
+        enviadoEm: new Date().toISOString(),
+      });
+    } catch (error) {
+      clearTimeout(this.roomDiscovery?.timeout);
+      this.roomDiscovery = undefined;
+      throw error;
+    }
+    return resposta;
+  }
 
   async enviar(mensagem: MensagemBluetooth): Promise<void> {
     if (!this.connected || !this.deviceId) {
@@ -133,6 +166,11 @@ export class JogoBluetoothClient {
 
   async desconectar(): Promise<void> {
     this.connected = false;
+    if (this.roomDiscovery) {
+      clearTimeout(this.roomDiscovery.timeout);
+      this.roomDiscovery.reject(new Error('A conexão foi encerrada.'));
+      this.roomDiscovery = undefined;
+    }
     await this.transport.desconectar();
   }
 
@@ -142,6 +180,12 @@ export class JogoBluetoothClient {
     if (!mensagem) {
       this.callbacks.onError('Mensagem Bluetooth inválida.');
       return;
+    }
+    if (mensagem.tipo === 'SALA_ATUALIZADA' && mensagem.jogadorId === 'anfitriao' && this.roomDiscovery) {
+      this.partidaId = mensagem.partidaId;
+      clearTimeout(this.roomDiscovery.timeout);
+      this.roomDiscovery.resolve(mensagem);
+      this.roomDiscovery = undefined;
     }
     if (mensagem.partidaId !== this.partidaId) return;
     this.callbacks.onMessage(mensagem);

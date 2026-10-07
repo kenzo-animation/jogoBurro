@@ -1,6 +1,6 @@
 import { BluetoothLowEnergy } from '@capgo/capacitor-bluetooth-low-energy';
 import type { PluginListenerHandle } from '@capacitor/core';
-import { joinMessage, splitMessage } from './protocol';
+import { chunkBytesForMtu, DEFAULT_CHUNK_BYTES, joinMessage, splitMessage } from './protocol';
 import { RX_UUID, SERVICE_UUID, TX_UUID } from './blePoc';
 export { joinMessage, splitMessage } from './protocol';
 
@@ -10,11 +10,26 @@ export interface BluetoothClientDiscovery {
   rssi: number;
 }
 
+async function withTimeout<T>(operation: Promise<T>, message: string, timeoutMs = 12000): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      operation,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 export class BluetoothClientTransport {
   private initialized = false;
   private scanning = false;
   private connected = false;
   private deviceId?: string;
+  private chunkBytes = DEFAULT_CHUNK_BYTES;
   private onMessage?: (deviceId: string, texto: string) => void;
   private onDisconnect?: (deviceId: string) => void;
   private scanTimer?: ReturnType<typeof setTimeout>;
@@ -83,7 +98,7 @@ export class BluetoothClientTransport {
     deviceId: string,
     onMessage: (deviceId: string, texto: string) => void,
     onDisconnect: (deviceId: string) => void,
-  ): Promise<void> {
+  ): Promise<number> {
     await this.initialize();
     await this.stopScan();
     this.deviceId = deviceId;
@@ -101,21 +116,55 @@ export class BluetoothClientTransport {
       this.pending.delete(deviceId);
       onDisconnect(deviceId);
     }));
-    await BluetoothLowEnergy.connect({ deviceId });
-    await BluetoothLowEnergy.discoverServices({ deviceId });
-    await BluetoothLowEnergy.startCharacteristicNotifications({
-      deviceId,
-      service: SERVICE_UUID,
-      characteristic: TX_UUID,
-    });
-    this.connected = true;
+    try {
+      await withTimeout(
+        BluetoothLowEnergy.connect({ deviceId }),
+        'O celular não respondeu à conexão. Tente novamente.',
+      );
+      try {
+        const mtuResult = await withTimeout(
+          BluetoothLowEnergy.requestMtu({ deviceId, mtu: 185 }),
+          'A negociação de velocidade expirou.',
+          3000,
+        );
+        this.chunkBytes = chunkBytesForMtu(mtuResult.mtu);
+      } catch {
+        this.chunkBytes = DEFAULT_CHUNK_BYTES;
+      }
+      await withTimeout(
+        BluetoothLowEnergy.discoverServices({ deviceId }),
+        'Não foi possível encontrar a sala neste celular.',
+      );
+      await withTimeout(
+        BluetoothLowEnergy.startCharacteristicNotifications({
+          deviceId,
+          service: SERVICE_UUID,
+          characteristic: TX_UUID,
+        }),
+        'Não foi possível ativar a comunicação com a sala.',
+      );
+      this.connected = true;
+      return this.chunkBytes;
+    } catch (error) {
+      this.connected = false;
+      this.deviceId = undefined;
+      this.onMessage = undefined;
+      this.onDisconnect = undefined;
+      for (const listener of this.listeners.splice(0)) await listener.remove();
+      try {
+        await BluetoothLowEnergy.disconnect({ deviceId });
+      } catch {
+        // A tentativa pode ter falhado antes de conectar.
+      }
+      throw error;
+    }
   }
 
   async enviar(texto: string): Promise<void> {
     if (!this.deviceId || !this.connected) {
       throw new Error('O dispositivo Bluetooth não está conectado.');
     }
-    for (const chunk of splitMessage(texto)) {
+    for (const chunk of splitMessage(texto, this.chunkBytes)) {
       const bytes = new TextEncoder().encode(chunk);
       await BluetoothLowEnergy.writeCharacteristic({
         deviceId: this.deviceId,
@@ -138,6 +187,7 @@ export class BluetoothClientTransport {
     }
     this.onMessage = undefined;
     this.onDisconnect = undefined;
+    this.chunkBytes = DEFAULT_CHUNK_BYTES;
     this.pending.clear();
     for (const listener of this.listeners.splice(0)) await listener.remove();
   }

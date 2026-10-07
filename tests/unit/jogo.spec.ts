@@ -24,7 +24,8 @@ describe('motor do jogo Burro', () => {
 
   it('cria quatro naipes por valor e distribui quatro cartas', () => {
     const partida = criarPartida(['Ana', 'Bia', 'Caio'], () => 0.2);
-    expect(criarBaralho(3)).toHaveLength(12);
+    expect(criarBaralho(3)).toHaveLength(52);
+    expect(new Set(criarBaralho(3).map((carta) => carta.valor)).size).toBe(13);
     expect(partida.jogadores.every((jogador) => jogador.mao)).toBe(true);
     expect(partida.jogadores.map((jogador) => jogador.mao.length)).toEqual([4, 4, 4]);
   });

@@ -1,9 +1,13 @@
 import { BluetoothLowEnergy } from '@capgo/capacitor-bluetooth-low-energy';
 import type { PluginListenerHandle } from '@capacitor/core';
+import { DEFAULT_CHUNK_BYTES, joinMessage, splitMessage } from './protocol';
+export { joinMessage, splitMessage } from './protocol';
 
 export const SERVICE_UUID = '7c1a0001-5b1e-4f7a-9d3c-0a1b2c3d4e5f';
 export const RX_UUID = '7c1a0002-5b1e-4f7a-9d3c-0a1b2c3d4e5f';
 export const TX_UUID = '7c1a0003-5b1e-4f7a-9d3c-0a1b2c3d4e5f';
+export const HEART_RATE_SERVICE_UUID = '180d';
+export const HEART_RATE_MEASUREMENT_UUID = '2a37';
 
 type Log = (message: string) => void;
 export interface Achado {
@@ -12,54 +16,29 @@ export interface Achado {
   rssi: number;
 }
 
-const encoder = new TextEncoder();
 const decoder = new TextDecoder();
-const toBytes = (text: string): number[] => Array.from(encoder.encode(text));
 const fromBytes = (bytes: number[]): string => decoder.decode(new Uint8Array(bytes));
-const CHUNK_BYTES = 120;
-const receivedChunks = new Map<string, { total: number; chunks: string[] }>();
 const listeners: PluginListenerHandle[] = [];
 let initializedMode: 'central' | 'peripheral' | undefined;
 let serviceRegistered = false;
+let heartRateServiceRegistered = false;
+const peerChunkBytes = new Map<string, number>();
+const receivedChunks = new Map<string, { total: number; chunks: Map<number, string> }>();
+const clientReceivedChunks = new Map<string, { total: number; chunks: Map<number, string> }>();
 
-function toBase64(bytes: number[]): string {
-  let value = '';
-  for (const byte of bytes) value += String.fromCharCode(byte);
-  return btoa(value);
-}
-
-function fromBase64(value: string): number[] {
-  return Array.from(atob(value), (character) => character.charCodeAt(0));
-}
-
-function splitMessage(text: string): string[] {
-  const bytes = toBytes(text);
-  const total = Math.max(1, Math.ceil(bytes.length / CHUNK_BYTES));
-  return Array.from({ length: total }, (_, index) => {
-    const chunk = bytes.slice(index * CHUNK_BYTES, (index + 1) * CHUNK_BYTES);
-    return `BURRO1/${index}/${total}/${toBase64(chunk)}`;
-  });
-}
-
-function joinMessage(deviceId: string, text: string): string | null {
-  const parts = text.split('/');
-  if (parts.length !== 4 || parts[0] !== 'BURRO1') return text;
-  const index = Number(parts[1]);
-  const total = Number(parts[2]);
-  if (!Number.isInteger(index) || !Number.isInteger(total) || index < 0 || index >= total || total > 256) return null;
-
-  const current = receivedChunks.get(deviceId) ?? { total, chunks: [] };
-  if (current.total !== total) receivedChunks.delete(deviceId);
-  const chunks = receivedChunks.get(deviceId) ?? { total, chunks: [] };
-  chunks.chunks[index] = parts[3];
-  receivedChunks.set(deviceId, chunks);
-  if (chunks.chunks.filter(Boolean).length !== total) return null;
-  receivedChunks.delete(deviceId);
-  return decoder.decode(new Uint8Array(chunks.chunks.flatMap(fromBase64)));
-}
-
-async function sendText(send: (bytes: number[]) => Promise<void>, text: string) {
-  for (const chunk of splitMessage(text)) await send(toBytes(chunk));
+async function sendText(
+  send: (bytes: number[]) => Promise<void>,
+  text: string,
+  chunkBytes = DEFAULT_CHUNK_BYTES,
+  pacingMs = 0,
+) {
+  const chunks = splitMessage(text, chunkBytes);
+  for (const [index, chunk] of chunks.entries()) {
+    await send(Array.from(new TextEncoder().encode(chunk)));
+    if (pacingMs > 0 && index < chunks.length - 1) {
+      await new Promise((resolve) => setTimeout(resolve, pacingMs));
+    }
+  }
 }
 
 function characteristicProperties(properties: Partial<Record<string, boolean>>) {
@@ -113,6 +92,9 @@ export async function iniciarAnfitriao(
 ) {
   await clearListeners();
   await preparePermissions(log, 'peripheral');
+  peerChunkBytes.clear();
+  receivedChunks.clear();
+  clientReceivedChunks.clear();
   try {
     await BluetoothLowEnergy.removeGattService({ service: SERVICE_UUID });
   } catch {
@@ -135,6 +117,17 @@ export async function iniciarAnfitriao(
     ],
   });
   serviceRegistered = true;
+  await BluetoothLowEnergy.addGattService({
+    service: HEART_RATE_SERVICE_UUID,
+    characteristics: [
+      {
+        uuid: HEART_RATE_MEASUREMENT_UUID,
+        properties: characteristicProperties({ notify: true }),
+        value: [0, 0],
+      },
+    ],
+  });
+  heartRateServiceRegistered = true;
   await saveListener(BluetoothLowEnergy.addListener('centralConnected', () => {
     log('Um celular entrou na sala.');
   }));
@@ -144,8 +137,23 @@ export async function iniciarAnfitriao(
   }));
   await saveListener(BluetoothLowEnergy.addListener('gattCharacteristicWriteRequest', (event) => {
     if (event.characteristic.toLowerCase() !== RX_UUID) return;
-    const message = joinMessage(event.deviceId, fromBytes(event.value));
-    if (message) onMessage(event.deviceId, message);
+    const messageText = joinMessage(fromBytes(event.value), event.deviceId, receivedChunks);
+    if (!messageText) return;
+    try {
+      const message: unknown = JSON.parse(messageText);
+      if (message && typeof message === 'object') {
+        const data = message as { tipo?: unknown; payload?: { chunkBytes?: unknown } };
+        if (data.tipo === 'CONSULTAR_SALA' && typeof data.payload?.chunkBytes === 'number') {
+          const requested = data.payload.chunkBytes;
+          if (Number.isInteger(requested) && requested >= DEFAULT_CHUNK_BYTES && requested <= 120 && requested % 3 === 0) {
+            peerChunkBytes.set(event.deviceId, requested);
+          }
+        }
+      }
+    } catch {
+      // O host de jogo valida o conteúdo tipado e ignora JSON inválido.
+    }
+    onMessage(event.deviceId, messageText);
   }));
   await BluetoothLowEnergy.startAdvertising({
     name: nome,
@@ -156,12 +164,20 @@ export async function iniciarAnfitriao(
 }
 
 export async function anfitriaoEnviar(text: string, deviceId?: string) {
+  if (!deviceId) {
+    await sendText((bytes) => BluetoothLowEnergy.notifyGattCharacteristicChanged({
+      service: SERVICE_UUID,
+      characteristic: TX_UUID,
+      value: bytes,
+    }), text, DEFAULT_CHUNK_BYTES, 20);
+    return;
+  }
   await sendText((bytes) => BluetoothLowEnergy.notifyGattCharacteristicChanged({
     service: SERVICE_UUID,
     characteristic: TX_UUID,
     value: bytes,
     deviceId,
-  }), text);
+  }), text, peerChunkBytes.get(deviceId) ?? DEFAULT_CHUNK_BYTES, 20);
 }
 
 export async function procurarPartidas(
@@ -194,11 +210,19 @@ export async function entrarNaPartida(
 ) {
   await BluetoothLowEnergy.stopScan();
   await clearListeners();
-  await BluetoothLowEnergy.connect({ deviceId });
-  await BluetoothLowEnergy.discoverServices({ deviceId });
+  try {
+    await BluetoothLowEnergy.connect({ deviceId });
+  } catch {
+    throw new Error('Não foi possível conectar ao anfitrião. Confirme que a sala ainda está aberta.');
+  }
+  try {
+    await BluetoothLowEnergy.discoverServices({ deviceId });
+  } catch {
+    throw new Error('O anfitrião foi encontrado, mas não respondeu à descoberta da sala.');
+  }
   await saveListener(BluetoothLowEnergy.addListener('characteristicChanged', (event) => {
     if (event.characteristic.toLowerCase() !== TX_UUID) return;
-    const message = joinMessage(deviceId, fromBytes(event.value));
+    const message = joinMessage(fromBytes(event.value), deviceId, clientReceivedChunks);
     if (message) onMessage(message);
   }));
   await saveListener(BluetoothLowEnergy.addListener('deviceDisconnected', (event) => {
@@ -206,11 +230,15 @@ export async function entrarNaPartida(
     log('A conexão com a sala foi encerrada.');
     onDisconnect();
   }));
-  await BluetoothLowEnergy.startCharacteristicNotifications({
-    deviceId,
-    service: SERVICE_UUID,
-    characteristic: TX_UUID,
-  });
+  try {
+    await BluetoothLowEnergy.startCharacteristicNotifications({
+      deviceId,
+      service: SERVICE_UUID,
+      characteristic: TX_UUID,
+    });
+  } catch {
+    throw new Error('O anfitrião foi encontrado, mas não foi possível ativar a resposta da sala.');
+  }
   log('Conectado à sala.');
 }
 
@@ -221,7 +249,7 @@ export async function clienteEnviar(deviceId: string, text: string) {
     characteristic: RX_UUID,
     value: bytes,
     type: 'withResponse',
-  }), text);
+  }), text, peerChunkBytes.get(deviceId) ?? DEFAULT_CHUNK_BYTES);
 }
 
 export async function encerrar(deviceId?: string) {
@@ -233,8 +261,18 @@ export async function encerrar(deviceId?: string) {
     try { await BluetoothLowEnergy.removeGattService({ service: SERVICE_UUID }); } catch { /* O serviço pode já ter sido removido. */ }
     serviceRegistered = false;
   }
+  if (heartRateServiceRegistered) {
+    try { await BluetoothLowEnergy.removeGattService({ service: HEART_RATE_SERVICE_UUID }); } catch { /* O serviço pode já ter sido removido. */ }
+    heartRateServiceRegistered = false;
+  }
   if (deviceId) {
     try { await BluetoothLowEnergy.disconnect({ deviceId }); } catch { /* A conexão pode já estar encerrada. */ }
+    peerChunkBytes.delete(deviceId);
+    receivedChunks.delete(deviceId);
+    clientReceivedChunks.delete(deviceId);
+  } else {
+    peerChunkBytes.clear();
+    receivedChunks.clear();
+    clientReceivedChunks.clear();
   }
-  receivedChunks.clear();
 }

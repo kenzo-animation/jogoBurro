@@ -34,4 +34,4 @@ npm run build
 
 Bluetooth exige dois celulares físicos e não funciona no emulador. A integração nativa usa BLE com as permissões `BLUETOOTH_SCAN`, `BLUETOOTH_CONNECT` e `BLUETOOTH_ADVERTISE`. O anfitrião permanece a fonte da verdade e valida as mensagens definidas em `src/types/bluetooth.ts`.
 
-O teste de aceite é: aparelho A toca “Ser anfitrião”, aparelho B encontra a partida, conecta e recebe uma notificação de texto; depois B envia um JSON pelo RX e A registra o pedido. A interface mostra apenas estados úteis da conexão, sem dados de diagnóstico.
+O teste de aceite é: aparelho A abre uma sala; no aparelho B, “Entrar em uma sala” procura o anfitrião, consulta o identificador da sala pelo protocolo tipado e envia o pedido de entrada. O nome do cliente deve aparecer na lista do anfitrião e habilitar “Começar partida”. A conexão deve ser validada em dois Android físicos.
