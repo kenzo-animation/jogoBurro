@@ -25,13 +25,13 @@ npm run build
 
 ## Fases 0–3
 
-- Fase 0: plugin escolhido e implementado em `src/services/bluetooth/blePoc.ts`; validar em dois Android físicos, porque emulador não comprova BLE.
+- Fase 0: plugin BLE implementado em `src/services/bluetooth/blePoc.ts`; validar em dois Android físicos, porque emulador não comprova BLE.
 - Fase 1: pastas de domínio, serviços, tipos, views e rotas estão separadas; o contrato Bluetooth rejeita mensagens sem `tipo`, `partidaId`, `jogadorId` ou `enviadoEm`.
 - Fase 2: motor local e testes Vitest cobrem distribuição, turnos, troca, grupo completo, penalidade e fim.
 - Fase 3: `@capacitor-community/sqlite` possui inicialização e CRUD em `src/services/database/sqlite.ts`; o modo web mantém `localStorage` como fallback para desenvolvimento no navegador.
 
 ## Bluetooth e próximos passos
 
-Bluetooth exige dois celulares físicos e não funciona no emulador. A integração nativa ainda precisa da prova de conceito Android: permissões `BLUETOOTH_SCAN`, `BLUETOOTH_CONNECT` e `BLUETOOTH_ADVERTISE`, conexão estrela host-cliente e reconexão. O adaptador deve implementar `MensagemBluetooth` em `src/types/bluetooth.ts` sem permitir que clientes alterem o estado localmente.
+Bluetooth exige dois celulares físicos e não funciona no emulador. A integração nativa usa BLE com as permissões `BLUETOOTH_SCAN`, `BLUETOOTH_CONNECT` e `BLUETOOTH_ADVERTISE`. O anfitrião permanece a fonte da verdade e valida as mensagens definidas em `src/types/bluetooth.ts`.
 
-O teste de aceite da Fase 0 é: aparelho A toca “Ser anfitrião”, aparelho B encontra a partida, conecta e recebe uma notificação de texto; depois B envia um JSON pelo RX e A registra o pedido. Só então o protocolo de jogo deve ser ligado à PoC.
+O teste de aceite é: aparelho A toca “Ser anfitrião”, aparelho B encontra a partida, conecta e recebe uma notificação de texto; depois B envia um JSON pelo RX e A registra o pedido. A interface mostra apenas estados úteis da conexão, sem dados de diagnóstico.

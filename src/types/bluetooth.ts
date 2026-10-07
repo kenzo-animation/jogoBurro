@@ -6,7 +6,12 @@ export interface PayloadsMensagem {
   RESPOSTA_ENTRADA: { aceita: boolean; motivo?: string; jogadorId?: string };
   INICIAR_PARTIDA: { jogadores: string[] };
   JOGADA: { cartaId: string };
-  TROCA_REALIZADA: { jogadorAtual: string; mao: import('@/types/game').Carta[]; rodada: number };
+  TROCA_REALIZADA: {
+    jogadorAtual: string;
+    mao: import('@/types/game').Carta[];
+    rodada: number;
+    jogadores: Array<{ id: string; nome: string; ordem: number; letrasBurro: number; conectado: boolean }>;
+  };
   JOGADOR_COMPLETOU: { jogadorId: string };
   PARTIDA_FINALIZADA: { vencedor?: string; penalizado?: string; motivo: string };
   RECONEXAO: { ultimoEstado?: number };
@@ -40,7 +45,13 @@ function payloadValido(tipo: TipoMensagem, payload: unknown): boolean {
   if (tipo === 'RESPOSTA_ENTRADA') return typeof payload.aceita === 'boolean' && (payload.motivo === undefined || typeof payload.motivo === 'string');
   if (tipo === 'PARTIDA_FINALIZADA') return typeof payload.motivo === 'string';
   if (tipo === 'SALA_ATUALIZADA') return Array.isArray(payload.jogadores) && typeof payload.aceita === 'boolean';
-  if (tipo === 'TROCA_REALIZADA') return typeof payload.jogadorAtual === 'string' && Array.isArray(payload.mao) && typeof payload.rodada === 'number';
+  if (tipo === 'TROCA_REALIZADA') {
+    return typeof payload.jogadorAtual === 'string'
+      && Array.isArray(payload.mao)
+      && typeof payload.rodada === 'number'
+      && Array.isArray(payload.jogadores)
+      && payload.jogadores.every((jogador) => typeof jogador.id === 'string' && typeof jogador.nome === 'string' && typeof jogador.ordem === 'number' && typeof jogador.letrasBurro === 'number' && typeof jogador.conectado === 'boolean');
+  }
   return false;
 }
 

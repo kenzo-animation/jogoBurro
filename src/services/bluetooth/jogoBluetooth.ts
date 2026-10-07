@@ -14,6 +14,7 @@ export interface JogadorConectado {
   conectado: boolean;
 }
 
+// O anfitrião é a única entidade capaz de validar e alterar o estado da partida.
 export class JogoBluetoothHost {
   readonly partidaId: string;
   readonly hostId: string;
@@ -33,6 +34,7 @@ export class JogoBluetoothHost {
   get estado(): Partida | null { return this.partida; }
   get sala(): readonly JogadorConectado[] { return this.jogadores; }
 
+  // Recebe e valida a mensagem antes de executar qualquer alteração da sala ou da partida.
   async receber(deviceId: string, texto: string): Promise<void> {
     const mensagem = desserializarMensagem(texto);
     if (!mensagem || mensagem.partidaId !== this.partidaId) return;
@@ -42,6 +44,7 @@ export class JogoBluetoothHost {
     if (mensagem.tipo === 'JOGADOR_COMPLETOU') return this.completou(mensagem);
   }
 
+  // Distribui as cartas, encerra a preparação e envia o estado privado para cada jogador.
   async iniciar(): Promise<void> {
     if (this.partida) return;
     if (this.jogadores.length < 2) throw new Error('A sala precisa de pelo menos dois jogadores.');
@@ -50,6 +53,7 @@ export class JogoBluetoothHost {
     await this.enviarEstadosPrivados();
   }
 
+  // Marca o jogador como desconectado e atualiza a sala para os demais dispositivos.
   async marcarDesconexao(deviceId: string): Promise<void> {
     const jogador = this.jogadores.find((item) => item.deviceId === deviceId);
     if (!jogador) return;
@@ -57,6 +61,7 @@ export class JogoBluetoothHost {
     await this.broadcast('SALA_ATUALIZADA', { jogadores: this.resumoSala(), aceita: true });
   }
 
+  // Aceita um jogador somente quando a sala está aberta, tem capacidade e o nome é único.
   private async solicitarEntrada(deviceId: string, mensagem: MensagemBluetooth<'SOLICITAR_ENTRADA'>) {
     const nome = mensagem.payload.nome.trim();
     const podeEntrar = !this.partida && !!nome && this.jogadores.length < 4 && !this.jogadores.some((jogador) => jogador.nome.toLowerCase() === nome.toLowerCase());
@@ -80,6 +85,7 @@ export class JogoBluetoothHost {
     await this.broadcast('SALA_ATUALIZADA', { jogadores: this.resumoSala(), aceita: true });
   }
 
+  // Valida turno, carta e jogador antes de aplicar a troca no estado autoritativo.
   private async jogada(mensagem: MensagemBluetooth<'JOGADA'>) {
     if (!this.partida) return;
     try {
@@ -90,6 +96,7 @@ export class JogoBluetoothHost {
     }
   }
 
+  // Valida a formação do grupo e aplica a penalidade BURRO no estado autoritativo.
   private async completou(mensagem: MensagemBluetooth<'JOGADOR_COMPLETOU'>) {
     if (!this.partida || mensagem.payload.jogadorId !== mensagem.jogadorId) return;
     try {
@@ -105,6 +112,7 @@ export class JogoBluetoothHost {
     }
   }
 
+  // Envia o estado completo, mas apenas a mão do jogador destinatário.
   private async enviarEstadosPrivados() {
     if (!this.partida) return;
     for (const jogador of this.partida.jogadores) await this.enviarEstadoPara(jogador.id);
@@ -114,9 +122,16 @@ export class JogoBluetoothHost {
     if (!this.partida) return;
     const jogador = this.partida.jogadores.find((item) => item.id === jogadorId);
     if (!jogador) return;
-    await this.enviar(this.deviceDo(jogadorId), criarMensagem('TROCA_REALIZADA', this.partidaId, jogadorId, { jogadorAtual: this.partida.jogadores[this.partida.jogadorAtual].id, mao: jogador.mao, rodada: this.partida.rodada }));
+    const jogadores = this.partida.jogadores.map(({ id, nome, ordem, letrasBurro, conectado }) => ({ id, nome, ordem, letrasBurro, conectado }));
+    await this.enviar(this.deviceDo(jogador.id), criarMensagem('TROCA_REALIZADA', this.partidaId, jogadorId, {
+      jogadorAtual: this.partida.jogadores[this.partida.jogadorAtual].id,
+      mao: jogador.mao,
+      rodada: this.partida.rodada,
+      jogadores,
+    }));
   }
 
+  // Retorna uma resposta estruturada para a solicitação do cliente.
   private async responder(deviceId: string | undefined, jogadorId: string, payload: { aceita: boolean; motivo?: string; jogadorId?: string }) {
     await this.enviar(deviceId, criarMensagem('RESPOSTA_ENTRADA', this.partidaId, jogadorId, payload));
   }

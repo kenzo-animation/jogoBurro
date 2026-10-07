@@ -54,37 +54,54 @@
   >
 </template>
 <script setup lang="ts">
-import { computed } from "vue";
-import { useRouter } from "vue-router";
-import { IonButton } from "@ionic/vue";
-import GameLayout from "@/components/GameLayout.vue";
-import { gameStore } from "@/stores/game";
+import { computed } from 'vue';
+import { useRouter } from 'vue-router';
+import { IonButton } from '@ionic/vue';
+import GameLayout from '@/components/GameLayout.vue';
+import { gameStore } from '@/stores/game';
+import { clienteAtivoAtual } from '@/services/bluetooth/jogoBluetoothClient';
+
 const router = useRouter();
 const partida = computed(() => gameStore.estado.partida);
 const jogadorAtual = computed(
-  () =>
-    partida.value?.jogadores[partida.value.jogadorAtual] || {
-      id: "",
-      nome: "",
-      mao: [],
-      letrasBurro: 0,
-      ordem: 0,
-      conectado: true,
-    },
+  () => partida.value?.jogadores[partida.value?.jogadorAtual] || {
+    id: '',
+    nome: '',
+    mao: [],
+    letrasBurro: 0,
+    ordem: 0,
+    conectado: true,
+  },
 );
 const podeBater = computed(
-  () =>
-    jogadorAtual.value.mao.length === 4 &&
-    new Set(jogadorAtual.value.mao.map((carta) => carta.valor)).size === 1,
+  () => jogadorAtual.value.mao.length === 4
+    && new Set(jogadorAtual.value.mao.map((carta) => carta.valor)).size === 1,
 );
-function passar(id: string) {
-  if (partida.value) gameStore.jogar(jogadorAtual.value.id, id);
+
+async function passar(id: string) {
+  const cliente = clienteAtivoAtual();
+  if (!cliente || !partida.value || jogadorAtual.value.id !== gameStore.estado.jogadorLocalId) return;
+  try {
+    await cliente.jogar(id);
+  } catch (error) {
+    console.error(error);
+  }
 }
-function bater() {
-  if (partida.value) gameStore.completar(jogadorAtual.value.id);
+
+async function bater() {
+  const cliente = clienteAtivoAtual();
+  if (!cliente || !partida.value || jogadorAtual.value.id !== gameStore.estado.jogadorLocalId) return;
+  try {
+    await cliente.completar();
+  } catch (error) {
+    console.error(error);
+  }
 }
-function encerrar() {
-  gameStore.encerrar("cancelada");
-  router.push("/resultado");
+
+async function encerrar() {
+  const cliente = clienteAtivoAtual();
+  await cliente?.desconectar();
+  gameStore.clearSession();
+  await router.push('/resultado');
 }
 </script>
