@@ -2,25 +2,24 @@
 <template>
 <ion-page>
 <ion-header>
-<ion-toolbar><ion-title>PoC Bluetooth ({{ papel }})</ion-title></ion-toolbar>
+<ion-toolbar><ion-title>Conexão Bluetooth</ion-title></ion-toolbar>
 </ion-header>
  
     <ion-content class="ion-padding">
 <ion-input v-model="nome" label="Seu nome" label-placement="floating" fill="outline" />
  
       <ion-button expand="block" :disabled="papel !== 'nenhum'" @click="virarAnfitriao">Ser anfitrião</ion-button>
-<ion-button expand="block" fill="outline" :disabled="papel !== 'nenhum'" @click="buscar">Procurar partidas</ion-button>
+<ion-button expand="block" fill="outline" :disabled="papel !== 'nenhum'" @click="buscar">Procurar celulares próximos</ion-button>
  
       <ion-list>
-<ion-item v-for="d in achados" :key="d.deviceId" button @click="entrar(d.deviceId)">
-<ion-label>{{ d.name ?? '(sem nome)' }}<p>{{ d.deviceId }} · {{ d.rssi }} dBm</p></ion-label>
+<ion-item v-for="(d, index) in achados" :key="d.deviceId" button @click="entrar(d.deviceId)">
+<ion-label>{{ d.name ?? `Celular próximo ${index + 1}` }}</ion-label>
 </ion-item>
 </ion-list>
  
-      <ion-button expand="block" color="success" :disabled="papel === 'nenhum' || !conectadoA && papel !== 'anfitriao'" @click="enviar">Enviar "olá"</ion-button>
-<ion-button expand="block" color="medium" fill="clear" @click="parar">Encerrar</ion-button>
+<ion-button v-if="papel !== 'nenhum'" expand="block" color="medium" fill="clear" @click="parar">Sair</ion-button>
  
-      <pre class="log">{{ logs.join('\n') }}</pre>
+      <p class="status" role="status">{{ status }}</p>
 </ion-content>
 </ion-page>
 </template>
@@ -41,55 +40,95 @@ import { JogoBluetoothHost } from '@/services/bluetooth/jogoBluetooth';
 const nome = ref('');
 const papel = ref<'nenhum' | 'anfitriao' | 'cliente'>('nenhum');
 const achados = ref<Achado[]>([]);
-const logs = ref<string[]>([]);
+const status = ref('Escolha criar uma sala ou procurar celulares próximos.');
 let conectadoA: string | undefined;
 let partidaConectada: string | undefined;
 let jogadorConectado: string | undefined;
-let contador = 0;
 let partidaPoc: string | undefined;
 let hostPoc: JogoBluetoothHost | undefined;
+let buscaTimer: ReturnType<typeof setTimeout> | undefined;
+
+interface SalaAnfitriao {
+  partidaId: string;
+  nome: string;
+}
  
-const log = (m: string) => logs.value.unshift(`${new Date().toLocaleTimeString()}  ${m}`);
-const tratar = (e: unknown) => log(`ERRO: ${e instanceof Error ? e.message : String(e)}`);
+const log = (message: string) => { status.value = message; };
+const tratar = (error: unknown, fallback = 'Não foi possível concluir a conexão.') => {
+  const message = error instanceof Error ? error.message : '';
+  status.value = message.startsWith('Permita ') || message.startsWith('Ative ')
+    ? message
+    : fallback;
+};
  
 async function virarAnfitriao() {
-  if (!nome.value.trim()) { log('Informe o nome da sala antes de anunciar.'); return; }
+  if (!nome.value.trim()) { status.value = 'Informe seu nome para criar a sala.'; return; }
   try {
     partidaPoc = `poc-${Date.now()}`;
     hostPoc = new JogoBluetoothHost(nome.value.trim(), { enviar: (id, texto) => anfitriaoEnviar(texto, id) }, partidaPoc);
-    await iniciarAnfitriao(`${nome.value.trim()}|${partidaPoc}`, log, async (id, txt) => {
-      log(`[de ${id}] ${txt}`);
+    await iniciarAnfitriao(nome.value.trim(), log, async (id, txt) => {
       try {
         const mensagem = JSON.parse(txt) as { tipo?: string };
-        if (mensagem.tipo === 'OLÁ') await anfitriaoEnviar(JSON.stringify({ tipo: 'OLÁ_ACK', mensagem: 'olá', partidaId: nome.value.trim() }), id);
+        if (mensagem.tipo === 'OLÁ' && partidaPoc) {
+          await anfitriaoEnviar(JSON.stringify({ tipo: 'OLÁ_ACK', partidaId: partidaPoc, nome: nome.value.trim() }), id);
+        }
       } catch { /* mensagens de teste não JSON também aparecem no log */ }
       void hostPoc?.receber(id, txt);
     }, (id) => { log(`Cliente desconectou: ${id}`); void hostPoc?.marcarDesconexao(id); });
     papel.value = 'anfitriao';
-  } catch (e) { tratar(e); }
+  } catch (e) { tratar(e, 'Não foi possível abrir a sala. Tente novamente.'); }
 }
  
 async function buscar() {
   try {
+    if (buscaTimer) clearTimeout(buscaTimer);
     achados.value = [];
+    status.value = 'Procurando celulares próximos…';
     await procurarPartidas(log, (d) => {
       if (!achados.value.some((x) => x.deviceId === d.deviceId)) achados.value.push(d);
     });
-  } catch (e) { tratar(e); }
+    buscaTimer = setTimeout(() => {
+      if (achados.value.length === 0) {
+        status.value = 'Nenhum celular encontrado. Deixe o anfitrião com a tela aberta e aproxime os aparelhos.';
+      }
+    }, 12500);
+  } catch (e) { tratar(e, 'Não foi possível procurar celulares próximos.'); }
 }
- 
+
 async function entrar(deviceId: string) {
-  if (!nome.value.trim()) { log('Informe seu nome antes de entrar.'); return; }
+  if (!nome.value.trim()) { status.value = 'Informe seu nome antes de entrar.'; return; }
   try {
-    await entrarNaPartida(deviceId, log, (txt) => log(`[anfitrião] ${txt}`), () => { papel.value = 'nenhum'; });
+    if (buscaTimer) clearTimeout(buscaTimer);
+    status.value = 'Conectando ao celular…';
+    let receberSala: ((sala: SalaAnfitriao) => void) | undefined;
+    const salaConfirmada = new Promise<SalaAnfitriao>((resolve) => { receberSala = resolve; });
+    await entrarNaPartida(deviceId, log, (txt) => {
+      try {
+        const resposta: unknown = JSON.parse(txt);
+        if (resposta && typeof resposta === 'object') {
+          const sala = resposta as Record<string, unknown>;
+          if (sala.tipo === 'OLÁ_ACK' && typeof sala.partidaId === 'string' && typeof sala.nome === 'string') {
+            receberSala?.({ partidaId: sala.partidaId, nome: sala.nome });
+          }
+        }
+      } catch { /* Outras mensagens são registradas, mas não representam a confirmação da sala. */ }
+    }, () => { papel.value = 'nenhum'; });
     conectadoA = deviceId;
     papel.value = 'cliente';
-    const achado = achados.value.find((item) => item.deviceId === deviceId);
-    const nomeSala = achado?.name || 'anfitrião';
-    const partidaId = nomeSala.includes('|') ? nomeSala.split('|')[1] : nomeSala;
-    if (!partidaId) throw new Error('A sala não anunciou um identificador válido.');
-    await clienteEnviar(deviceId, JSON.stringify({ tipo: 'OLÁ', mensagem: 'olá' }));
-    log('Mensagem "olá" enviada; aguardando confirmação.');
+    await clienteEnviar(deviceId, JSON.stringify({ tipo: 'OLÁ' }));
+    let cancelarTimeout: (() => void) | undefined;
+    const timeoutSala = new Promise<never>((_, reject) => {
+      const timer = setTimeout(() => reject(new Error('O anfitrião não confirmou a sala. Verifique se ele ainda está anunciando.')), 8000);
+      cancelarTimeout = () => clearTimeout(timer);
+    });
+    let sala: SalaAnfitriao;
+    try {
+      sala = await Promise.race([salaConfirmada, timeoutSala]);
+    } finally {
+      cancelarTimeout?.();
+    }
+    const { partidaId, nome: nomeSala } = sala;
+    log(`Sala confirmada: ${nomeSala}.`);
     const jogadorId = jogadorConectado || `jogador-${Date.now()}`;
     const mensagem = partidaConectada === partidaId
       ? criarMensagem('RECONEXAO', partidaId, jogadorId, {})
@@ -97,31 +136,22 @@ async function entrar(deviceId: string) {
     await clienteEnviar(deviceId, serializarMensagem(mensagem));
     partidaConectada = partidaId;
     jogadorConectado = jogadorId;
-    log(`Pedido de entrada enviado para ${nomeSala || 'anfitrião'}.`);
-  } catch (e) { tratar(e); }
+    status.value = `Conectado à sala ${nomeSala}.`;
+  } catch (e) { tratar(e, 'Não foi possível conectar. Verifique se a sala do outro celular está aberta.'); }
 }
- 
-async function enviar() {
-  const msg = papel.value === 'anfitriao'
-    ? JSON.stringify({ tipo: 'OLÁ', mensagem: 'olá', n: ++contador })
-    : JSON.stringify({ tipo: 'OLÁ', mensagem: 'olá', n: ++contador });
-  try {
-    if (papel.value === 'anfitriao') await anfitriaoEnviar(msg);
-    else if (conectadoA) await clienteEnviar(conectadoA, msg);
-    log(`enviado: ${msg}`);
-  } catch (e) { tratar(e); }
-}
- 
+
 async function parar() {
+  if (buscaTimer) clearTimeout(buscaTimer);
+  buscaTimer = undefined;
   await encerrar(conectadoA);
   conectadoA = undefined;
   partidaPoc = undefined;
   hostPoc = undefined;
   papel.value = 'nenhum';
-  log('Encerrado');
+  status.value = 'Conexão encerrada.';
 }
 </script>
  
 <style scoped>
-.log { font-size: 12px; white-space: pre-wrap; margin-top: 16px; }
+.status { margin-top: 16px; text-align: center; }
 </style>

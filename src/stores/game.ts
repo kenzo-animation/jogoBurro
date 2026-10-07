@@ -1,5 +1,4 @@
 import { reactive } from 'vue';
-import { completarJogador, criarPartida, trocarCarta } from '@/domain/jogo';
 import type { Partida } from '@/types/game';
 import { registrarPartida } from '@/services/database/historico';
 
@@ -7,6 +6,7 @@ export interface JogadorSala {
   id: string;
   nome: string;
   ordem: number;
+  conectado: boolean;
 }
 
 export interface Sala {
@@ -14,7 +14,8 @@ export interface Sala {
   jogadores: JogadorSala[];
 }
 
-const estado = reactive<{ partida: Partida | null; sala: Sala | null; nomeLocal: string }>({ partida: null, sala: null, nomeLocal: 'Você' });
+// O store é o estado visível pela UI. Ele não deve conter regras de validação do jogo.
+const estado = reactive<{ partida: Partida | null; sala: Sala | null; nomeLocal: string; jogadorLocalId?: string }>({ partida: null, sala: null, nomeLocal: 'Você' });
 
 export const gameStore = {
   estado,
@@ -25,30 +26,25 @@ export const gameStore = {
     estado.partida = null;
     estado.sala = {
       id: `sala-${Date.now()}`,
-      jogadores: [{ id: 'anfitriao', nome: nomeAnfitriao, ordem: 0 }],
+      jogadores: [{ id: 'anfitriao', nome: nomeAnfitriao, ordem: 0, conectado: true }],
     };
   },
-  adicionarJogador(nome: string, id: string) {
-    const sala = estado.sala;
-    const nomeJogador = nome.trim();
-    if (!sala || estado.partida || !nomeJogador || sala.jogadores.length >= 4) return false;
-    if (sala.jogadores.some((jogador) => jogador.id === id)) return false;
-    sala.jogadores.push({ id, nome: nomeJogador, ordem: sala.jogadores.length });
-    return true;
+  setSala(sala: Sala) {
+    estado.sala = sala;
   },
-  iniciarPartida() {
-    const sala = estado.sala;
-    if (!sala || sala.jogadores.length < 2) throw new Error('A sala precisa de pelo menos dois jogadores.');
-    if (estado.partida) return;
-    estado.partida = criarPartida(sala.jogadores.map((jogador) => jogador.nome));
+  setPartida(partida: Partida) {
+    estado.partida = partida;
   },
-  jogar(jogadorId: string, cartaId: string) {
-    if (!estado.partida) return;
-    estado.partida = trocarCarta(estado.partida, jogadorId, cartaId);
+  setJogadorLocal(id: string, nome: string) {
+    estado.nomeLocal = nome;
+    estado.jogadorLocalId = id;
+    const jogador = estado.partida?.jogadores.find((item) => item.id === id);
+    if (jogador) jogador.nome = nome;
   },
-  completar(jogadorId: string) {
-    if (!estado.partida) return;
-    estado.partida = completarJogador(estado.partida, jogadorId);
+  clearSession() {
+    estado.partida = null;
+    estado.sala = null;
+    estado.jogadorLocalId = undefined;
   },
   encerrar(status: Partida['status'] = 'finalizada') {
     if (!estado.partida) return;
